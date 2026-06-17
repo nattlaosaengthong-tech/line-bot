@@ -99,11 +99,9 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ฟังก์ชันหลักที่ใช้วิ่งส่งข้อความ (แยกออกมาเพื่อแชร์ใช้ร่วมกันได้)
-async function processBilling(checkConditions = true) {
+// 🔥 ฟังก์ชันหลักที่ปรับปรุงใหม่: รองรับการเช็คเงื่อนไขตาม "วัน" และ "วันที่ระบุโดดๆ" แบบแม่นยำ
+async function processBilling(checkConditions = true, dayOfWeekThai = '', dayOfMonth = 0) {
   const rows = await getSheetData();
-  const today = new Date();
-  const dayOfWeek = today.getDay(); // 0=อาทิตย์, 1=จันทร์ ...
 
   for (const row of rows) {
     const [name, amount, type, round, bank, groupId] = row;
@@ -112,17 +110,33 @@ async function processBilling(checkConditions = true) {
 
     let shouldSend = false;
 
-    // ถ้าไม่ได้สั่งแบบแมนนวล (ให้เช็คเงื่อนไขวันตามปกติ)
+    // ถ้าดึงระบบออโต้ (ให้เช็คเงื่อนไขตามวันและเวลาปัจจุบันของไทย)
     if (checkConditions) {
-      if (round && (round.includes('วัน'))) {
-        shouldSend = true;
-      } else if (round && (round.includes('อาทิตย์'))) {
-        shouldSend = (dayOfWeek === 1); // ส่งวันจันทร์
-      } else if (round && (round.includes('เดือน'))) {
-        shouldSend = (today.getDate() === 1); // ส่งวันที่ 1
+      const cycle = round ? round.trim() : '';
+
+      if (cycle === 'วัน' || cycle === 'รายวัน') {
+        shouldSend = true; // ส่งทุกวัน
+      } 
+      else if (cycle === 'อาทิตย์' || cycle === 'รายอาทิตย์') {
+        if (dayOfWeekThai === 'วันจันทร์') shouldSend = true; // ส่งเฉพาะวันจันทร์
+      } 
+      else if (cycle === '15 วัน') {
+        if (dayOfMonth === 1 || dayOfMonth === 16) shouldSend = true; // ส่งทุกวันที่ 1 และ 16 ของเดือน
+      } 
+      else if (cycle === '30 วัน' || cycle === 'เดือน' || cycle === 'รายเดือน') {
+        if (dayOfMonth === 1) shouldSend = true; // ส่งเฉพาะวันที่ 1 ของเดือน
+      } 
+      else if (cycle === dayOfWeekThai) {
+        shouldSend = true; // เจาะจงวันจันทร์ - วันอาทิตย์ ตรงเป๊ะกับวันนี้ค่อยส่ง
+      } 
+      else if (!isNaN(cycle) && cycle !== '') {
+        // ถ้าพิมพ์เป็นเลขวันที่โดดๆ เช่น 21, 5, 10
+        if (parseInt(cycle, 10) === dayOfMonth) {
+          shouldSend = true; // ส่งเมื่อวันที่ปัจจุบันตรงกับตัวเลขในช่องรอบ
+        }
       }
     } else {
-      // ถ้าสั่งแบบแมนนวลผ่านลิงก์เว็บ ให้ส่งหมดทุกคนที่มี Group ID ทันทีเพื่อทดสอบ
+      // ถ้าสั่งแบบแมนนวลผ่านลิงก์เว็บ (/test-billing) ให้ส่งหมดทุกคนเพื่อทดสอบ
       shouldSend = true;
     }
 
@@ -138,7 +152,7 @@ app.get('/', (req, res) => {
   res.send('LINE Bot กำลังทำงานบน Render ได้อย่างสมบูรณ์แบบ ✅');
 });
 
-// ลิงก์สำหรับกดเพื่อ "สั่งทวงเงินแมนนวลทันที" ผ่านหน้าเว็บ
+// ลิงก์สำหรับกดเพื่อ "สั่งทวงเงินแมนนวลทันที" ผ่านหน้าเว็บ (ส่งทุกคนไม่สนเงื่อนไขวัน)
 app.get('/test-billing', async (req, res) => {
   console.log('⚡ กำลังสั่งรันระบบทวงเงินแบบแมนนวลผ่านหน้าเว็บ...');
   try {
@@ -150,12 +164,30 @@ app.get('/test-billing', async (req, res) => {
   }
 });
 
-// ส่งบิลทุกวันอัตโนมัติรอบ 18:00 น. (เวลาไทย UTC+7)
-cron.schedule('0 3 * * *', async () => {
-  console.log('🕕 เริ่มส่งบิลรอบอัตโนมัติประจำวัน 18:00 น...');
+// 🔥 ตั้งเวลาทำงานอัตโนมัติทุกวัน ตอนเวลา 09:00 น. (เวลาไทย)
+// เวลาไทย 09:00 น. ลบออก 7 ชั่วโมง จะตรงกับเวลาสากล 02:00 น. (0 2 * * *)
+cron.schedule('0 2 * * *', async () => {
+  console.log('🕕 [Auto] บอทตื่นมาทำงานรอบอัตโนมัติเวลา 09:00 น. (เวลาไทย)');
+  
   try {
-    await processBilling(true);
-    console.log('✅ ส่งบิลรอบประจำวันครบถ้วน');
+    // 1. ดึงวันที่และเวลาปัจจุบันแบบเวลาประเทศไทย (Asia/Bangkok)
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('th-TH', {
+      timeZone: 'Asia/Bangkok',
+      weekday: 'long', // ได้ 'วันจันทร์', 'วันอังคาร', ..., 'วันพฤหัสบดี'
+      day: 'numeric',   // ได้เลขวันที่ปัจจุบัน เช่น '5', '21', '25'
+    });
+    
+    const parts = formatter.formatToParts(now);
+    const dayOfWeekThai = parts.find(p => p.type === 'weekday').value; 
+    const dayOfMonth = parseInt(parts.find(p => p.type === 'day').value, 10); 
+    
+    console.log(`📅 วันนี้คือ: ${dayOfWeekThai} | วันที่: ${dayOfMonth}`);
+
+    // ส่งค่าชื่อวัน และเลขวันที่ เข้าไปในฟังก์ชันหลักเพื่อให้คำนวณแยกแยะได้อย่างถูกต้อง
+    await processBilling(true, dayOfWeekThai, dayOfMonth); 
+    
+    console.log('✅ ส่งบิลรอบประจำวันอัตโนมัติเสร็จสิ้น');
   } catch (err) {
     console.error('❌ เกิดข้อผิดพลาดในรอบอัตโนมัติ:', err.message);
   }
