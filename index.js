@@ -111,7 +111,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ส่งบิลทุกวัน 18:00 น. (เวลาไทย UTC+7 = 11:00 UTC)
-cron.schedule('0 11 * * *', async () => {
+cron.schedule('17 20 * * *', async () => {
   console.log('🕕 เริ่มส่งบิล 18:00 น...');
   try {
     const rows = await getSheetData();
