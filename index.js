@@ -73,74 +73,87 @@ async function sendBill(groupId, name, amount, bank) {
   console.log(`✅ ส่งบิลให้ ${name} แล้ว`);
 }
 
-// Webhook รับ events จาก LINE
+// รับ Group ID อัตโนมัติเมื่อบอทถูก invite เข้ากลุ่ม
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
   const events = req.body.events || [];
 
   for (const event of events) {
-    // เมื่อบอทเข้ากลุ่ม → log Group ID
-    if (event.type === 'join' && event.source.type === 'group') {
-      const groupId = event.source.groupId;
-      console.log(`✅ บอทเข้ากลุ่มแล้ว Group ID: ${groupId}`);
-    }
-
-    // เมื่อมีคนส่งข้อความในกลุ่ม → ส่ง Group ID ให้เจ้าของ
     if (event.type === 'message' && event.source.type === 'group') {
       const groupId = event.source.groupId;
       const userId = event.source.userId;
 
-      try {
-        await axios.post('https://api.line.me/v2/bot/message/push', {
-          to: userId,
-          messages: [{
-            type: 'text',
-            text: `🔑 Group ID ของกลุ่มนี้คือ:\n${groupId}\n\nนำไปใส่ใน Google Sheets ได้เลยครับ`
-          }]
-        }, {
-          headers: {
-            'Authorization': `Bearer ${CONFIG.LINE_TOKEN}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      } catch (err) {
-        console.error('ส่ง Group ID ไม่ได้:', err.message);
-      }
+      await axios.post('https://api.line.me/v2/bot/message/push', {
+        to: userId,
+        messages: [{
+          type: 'text',
+          text: `🔑 Group ID ของกลุ่มนี้คือ:\n${groupId}\n\nนำไปใส่ใน Google Sheets ได้เลยครับ`
+        }]
+      }, {
+        headers: {
+          'Authorization': `Bearer ${CONFIG.LINE_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      });
     }
   }
 });
 
-// ส่งบิลทุกวัน 18:00 น. (เวลาไทย UTC+7 = 11:00 UTC)
-cron.schedule('17 20 * * *', async () => {
-  console.log('🕕 เริ่มส่งบิล 18:00 น...');
-  try {
-    const rows = await getSheetData();
-    const today = new Date();
-    const dayOfWeek = today.getDay(); // 0=อาทิตย์, 1=จันทร์
+// ฟังก์ชันหลักที่ใช้วิ่งส่งข้อความ (แยกออกมาเพื่อแชร์ใช้ร่วมกันได้)
+async function processBilling(checkConditions = true) {
+  const rows = await getSheetData();
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0=อาทิตย์, 1=จันทร์ ...
 
-    for (const row of rows) {
-      const [name, amount, type, round, bank, groupId] = row;
+  for (const row of rows) {
+    const [name, amount, type, round, bank, groupId] = row;
 
-      if (!groupId || groupId === '(ว่าง)') continue;
+    if (!groupId || groupId === '(ว่าง)') continue;
 
-      let shouldSend = false;
+    let shouldSend = false;
 
-      if (round === 'วัน') {
+    // ถ้าไม่ได้สั่งแบบแมนนวล (ให้เช็คเงื่อนไขวันตามปกติ)
+    if (checkConditions) {
+      // ปรับแก้ให้รองรับคำว่า "รายวัน" หรือ "วัน" / "รายอาทิตย์" หรือ "อาทิตย์"
+      if (round && (round.includes('วัน'))) {
         shouldSend = true;
-      } else if (round === 'อาทิตย์') {
-        shouldSend = (dayOfWeek === 1);
-      } else if (round === 'เดือน') {
-        shouldSend = (today.getDate() === 1);
+      } else if (round && (round.includes('อาทิตย์'))) {
+        shouldSend = (dayOfWeek === 1); // ส่งวันจันทร์
+      } else if (round && (round.includes('เดือน'))) {
+        shouldSend = (today.getDate() === 1); // ส่งวันที่ 1
       }
-
-      if (shouldSend) {
-        await sendBill(groupId, name, amount, bank);
-        await new Promise(r => setTimeout(r, 1000));
-      }
+    } else {
+      // ถ้าสั่งแบบแมนนวลผ่านลิงก์เว็บ ให้ส่งหมดทุกคนที่มี Group ID ทันทีเพื่อทดสอบ
+      shouldSend = true;
     }
-    console.log('✅ ส่งบิลครบทุกกลุ่มแล้ว');
+
+    if (shouldSend) {
+      await sendBill(groupId, name, amount, bank);
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+}
+
+// ลิงก์สำหรับกดเพื่อ "สั่งทวงเงินแมนนวลทันที" ผ่านหน้าเว็บ (เอาไว้ใช้ทดสอบและกดสั่งเอง)
+app.get('/test-billing', async (req, res) => {
+  console.log('⚡ กำลังสั่งรันระบบทวงเงินแบบแมนนวลผ่านหน้าเว็บ...');
+  try {
+    // ใส่ค่า false เพื่อบังคับให้มันยิงบิลทันทีโดยไม่ต้องสนใจเงื่อนไขวันเวลา
+    await processBilling(false);
+    res.send('✅ สั่งส่งบิลเข้ากลุ่ม LINE เรียบร้อยแล้ว! ลองเปิดดูใน LINE ได้เลยครับ');
   } catch (err) {
-    console.error('❌ เกิดข้อผิดพลาด:', err.message);
+    res.status(500).send(`❌ เกิดข้อผิดพลาด: ${err.message}`);
+  }
+});
+
+// ส่งบิลทุกวันอัตโนมัติรอบ 18:00 น. (เวลาไทย UTC+7)
+cron.schedule('0 11 * * *', async () => {
+  console.log('🕕 เริ่มส่งบิลรอบอัตโนมัติประจำวัน 18:00 น...');
+  try {
+    await processBilling(true);
+    console.log('✅ ส่งบิลรอบประจำวันครบถ้วน');
+  } catch (err) {
+    console.error('❌ เกิดข้อผิดพลาดในรอบอัตโนมัติ:', err.message);
   }
 });
 
