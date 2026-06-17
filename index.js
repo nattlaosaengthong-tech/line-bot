@@ -73,66 +73,68 @@ async function sendBill(groupId, name, amount, bank) {
   console.log(`✅ ส่งบิลให้ ${name} แล้ว`);
 }
 
-// รับ Group ID อัตโนมัติเมื่อบอทถูก invite เข้ากลุ่ม
+// Webhook รับ events จาก LINE
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
   const events = req.body.events || [];
 
   for (const event of events) {
-    // เมื่อมีคนส่งข้อความในกลุ่ม → แสดง Group ID
+    // เมื่อบอทเข้ากลุ่ม → log Group ID
+    if (event.type === 'join' && event.source.type === 'group') {
+      const groupId = event.source.groupId;
+      console.log(`✅ บอทเข้ากลุ่มแล้ว Group ID: ${groupId}`);
+    }
+
+    // เมื่อมีคนส่งข้อความในกลุ่ม → ส่ง Group ID ให้เจ้าของ
     if (event.type === 'message' && event.source.type === 'group') {
       const groupId = event.source.groupId;
       const userId = event.source.userId;
 
-      // ส่ง Group ID กลับให้เจ้าของแบบ private message
-      await axios.post('https://api.line.me/v2/bot/message/push', {
-        to: userId,
-        messages: [{
-          type: 'text',
-          text: `🔑 Group ID ของกลุ่มนี้คือ:\n${groupId}\n\nนำไปใส่ใน Google Sheets ได้เลยครับ`
-        }]
-      }, {
-        headers: {
-          'Authorization': `Bearer ${CONFIG.LINE_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      try {
+        await axios.post('https://api.line.me/v2/bot/message/push', {
+          to: userId,
+          messages: [{
+            type: 'text',
+            text: `🔑 Group ID ของกลุ่มนี้คือ:\n${groupId}\n\nนำไปใส่ใน Google Sheets ได้เลยครับ`
+          }]
+        }, {
+          headers: {
+            'Authorization': `Bearer ${CONFIG.LINE_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      } catch (err) {
+        console.error('ส่ง Group ID ไม่ได้:', err.message);
+      }
     }
   }
 });
 
-// ส่งบิลทุกวัน 18:00 น. (เวลาไทย UTC+7)
-// cron: นาที ชั่วโมง * * * 
-// 18:00 ไทย = 11:00 UTC
+// ส่งบิลทุกวัน 18:00 น. (เวลาไทย UTC+7 = 11:00 UTC)
 cron.schedule('0 11 * * *', async () => {
   console.log('🕕 เริ่มส่งบิล 18:00 น...');
   try {
     const rows = await getSheetData();
     const today = new Date();
-    const dayOfWeek = today.getDay(); // 0=อาทิตย์, 1=จันทร์ ...
+    const dayOfWeek = today.getDay(); // 0=อาทิตย์, 1=จันทร์
 
     for (const row of rows) {
       const [name, amount, type, round, bank, groupId] = row;
 
-      // ข้ามถ้าไม่มี Group ID ยังไม่ได้ตั้งค่า
       if (!groupId || groupId === '(ว่าง)') continue;
 
       let shouldSend = false;
 
       if (round === 'วัน') {
-        // รายวัน → ส่งทุกวัน
         shouldSend = true;
       } else if (round === 'อาทิตย์') {
-        // รายอาทิตย์ → ส่งทุกวันจันทร์
         shouldSend = (dayOfWeek === 1);
       } else if (round === 'เดือน') {
-        // รายเดือน → ส่งวันที่ 1 ของเดือน
         shouldSend = (today.getDate() === 1);
       }
 
       if (shouldSend) {
         await sendBill(groupId, name, amount, bank);
-        // หน่วงเวลา 1 วิ เพื่อไม่ให้ส่งเร็วเกินไป
         await new Promise(r => setTimeout(r, 1000));
       }
     }
