@@ -151,7 +151,7 @@ app.get('/test-billing', async (req, res) => {
 });
 
 // ส่งบิลทุกวันอัตโนมัติรอบ 18:00 น. (เวลาไทย UTC+7)
-cron.schedule('0 11 * * *', async () => {
+cron.schedule('19 21 * * *', async () => {
   console.log('🕕 เริ่มส่งบิลรอบอัตโนมัติประจำวัน 18:00 น...');
   try {
     await processBilling(true);
