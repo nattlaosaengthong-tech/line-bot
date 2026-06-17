@@ -25,7 +25,7 @@ const CONFIG = {
 };
 // ==========================
 
-// เชื่อม Google Sheets (ขยาย Range เป็น A1:Z1000 เพื่อให้คลุมคอลัมน์ที่เพิ่มใหม่ทั้งหมด)
+// เชื่อม Google Sheets (ดึงตั้งแต่แถวที่ 2 เป็นต้นไป ไม่ต้องสนหัวตารางเพื่อความปลอดภัย)
 async function getSheetData() {
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
   const auth = new google.auth.GoogleAuth({
@@ -35,12 +35,12 @@ async function getSheetData() {
   const sheets = google.sheets({ version: 'v4', auth });
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: CONFIG.SPREADSHEET_ID,
-    range: 'Sheet1!A1:Z1000', // เริ่มจาก A1 เพื่อดึงหัวตารางมาเช็คตำแหน่งคอลัมน์
+    range: 'Sheet1!A2:H1000', // ดึงยาวไปถึงคอลัมน์ H เลยครับ
   });
   return res.data.values || [];
 }
 
-// ส่งข้อความเข้ากลุ่ม LINE (ปรับปรุงใหม่: ให้โชว์ยอดเงินปกติ ยอดค้าง และค่าปรับในสลิปข้อความด้วย)
+// ส่งข้อความเข้ากลุ่ม LINE
 async function sendBill(groupId, name, finalAmount, bank, originalAmount, delayCount, fineAmount) {
   const now = new Date();
   const timeStr = '18:00 น.';
@@ -50,8 +50,8 @@ async function sendBill(groupId, name, finalAmount, bank, originalAmount, delayC
 
   const bankInfo = CONFIG.BANK[bank] || CONFIG.BANK['K'];
 
-  // สร้างข้อความแจ้งรายละเอียดเงินทบ + ค่าปรับ ให้ลูกค้าเห็นชัดเจน
-  let billDetail = `💰 ยอดที่ต้องชำระ: ${Number(originalAmount).toLocaleString()} บาท\n`;
+  // สร้างดีเทลแจ้งยอดทบ
+  let billDetail = `💰 ยอดงวดนี้: ${Number(originalAmount).toLocaleString()} บาท\n`;
   if (Number(delayCount) > 0) {
     billDetail += `⚠️ ค้างชำระสะสม: ${delayCount} งวด\n`;
   }
@@ -61,9 +61,9 @@ async function sendBill(groupId, name, finalAmount, bank, originalAmount, delayC
 
   const message = `📋 แจ้งยอดชำระสุทธิ
 ──────────────
-👩🏻 คุณ ${name}
+👤 คุณ ${name}
 ${billDetail}────────────────
-💵 ยอดที่ต้องชำระ: ${Number(finalAmount).toLocaleString()} บาท
+💵 รวมยอดที่ต้องโอน: ${Number(finalAmount).toLocaleString()} บาท
 📅 ${dateStr} เวลา ${timeStr}
 ──────────────
 โอนมาที่ ${bankInfo.name}
@@ -80,7 +80,7 @@ ${billDetail}────────────────
     }
   });
 
-  console.log(`✅ ส่งบิลรวบยอดทบให้คุณ ${name} เรียบร้อยแล้ว (ยอดสุทธิ: ${finalAmount} บาท)`);
+  console.log(`✅ ส่งบิลรวบยอดให้คุณ ${name} แล้ว (ยอดสุทธิ: ${finalAmount} บาท)`);
 }
 
 // รับ Group ID อัตโนมัติเมื่อบอทถูก invite เข้ากลุ่ม
@@ -109,38 +109,22 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// 🔥 ฟังก์ชันหลักในการประมวลผลบิล (จับคู่หัวตารางอัตโนมัติ + คำนวณรวบยอด)
+// ฟังก์ชันหลัก (ปรับกลับมาใช้ระบบนับช่องคอลัมน์ ล็อกตำแหน่งตามตารางของพี่ ป้องกันโค้ดเอ็กซิตพัง)
 async function processBilling(checkConditions = true, dayOfWeekThai = '', dayOfMonth = 0) {
-  const allRows = await getSheetData();
-  if (allRows.length < 2) return; // ไม่มีข้อมูลลุกค้า
+  const rows = await getSheetData();
 
-  // 1. ค้นหาตำแหน่งคอลัมน์จากแถวที่ 1 (หัวตาราง) อัตโนมัติ
-  const headers = allRows[0].map(h => h.trim());
-  const idxName = headers.indexOf('ชื่อลูกค้า'); // คอลัมน์ A (หรือตามที่ตั้งชื่อไว้)
-  const idxAmount = headers.indexOf('ยอดเงิน') !== -1 ? headers.indexOf('ยอดเงิน') : 1; 
-  const idxType = 2; // ประเภท
-  const idxRound = 3; // รอบ
-  const idxBank = 4; // บัญชี
-  const idxGroupId = 5; // Group ID
-  
-  // คอลัมน์ใหม่ที่พี่เพิ่มเข้าไปใน Google Sheets
-  const idxDelay = headers.indexOf('ค้างงวด'); 
-  const idxFine = headers.indexOf('ค่าปรับ');
-
-  // 2. เริ่มอ่านข้อมูลลูกค้าตั้งแต่แถวที่ 2 เป็นต้นไป
-  const dataRows = allRows.slice(1);
-
-  for (const row of dataRows) {
-    const name = row[idxName] || '';
-    const originalAmount = parseFloat(row[idxAmount] || 0);
-    const type = row[idxType] || '';
-    const round = row[idxRound] ? row[idxRound].trim() : '';
-    const bank = row[idxBank] || 'K';
-    const groupId = row[idxGroupId] || '';
-
-    // อ่านค่าการค้างชำระและค่าปรับ (ถ้าไม่มีให้มองเป็น 0)
-    const delayCount = idxDelay !== -1 && row[idxDelay] ? parseInt(row[idxDelay], 10) : 0;
-    const fineAmount = idxFine !== -1 && row[idxFine] ? parseFloat(row[idxFine] || 0) : 0;
+  for (const row of rows) {
+    // ล็อกตำแหน่งตามใจสั่ง: A=ชื่อ, B=ยอดเงิน, C=ประเภท, D=รอบ, E=บัญชี, F=GroupID, G=ค้างงวด, H=ค่าปรับ
+    const name = row[0] || '';
+    const originalAmount = parseFloat(row[1] || 0);
+    const type = row[2] || '';
+    const round = row[3] ? row[3].trim() : '';
+    const bank = row[4] || 'K';
+    const groupId = row[5] || '';
+    
+    // ค้างงวด (คอลัมน์ G คือ row[6]) และ ค่าปรับ (คอลัมน์ H คือ row[7])
+    const delayCount = row[6] ? parseInt(row[6].trim(), 10) : 0;
+    const fineAmount = row[7] ? parseFloat(row[7].trim()) : 0;
 
     if (!groupId || groupId === '(ว่าง)' || !name) continue;
 
@@ -156,3 +140,70 @@ async function processBilling(checkConditions = true, dayOfWeekThai = '', dayOfM
       } 
       else if (round !== '') {
         const datesArray = round.split(',').map(d => parseInt(d.trim(), 10));
+        if (datesArray.includes(dayOfMonth)) {
+          shouldSend = true;
+        }
+      }
+    } else {
+      // ถ้ารันมือแมนนวล ส่งทุกคนทันที
+      shouldSend = true;
+    }
+
+    if (shouldSend) {
+      // คำนวณรวบยอดออโต้
+      const finalAmount = originalAmount + (originalAmount * (isNaN(delayCount) ? 0 : delayCount)) + (isNaN(fineAmount) ? 0 : fineAmount);
+
+      await sendBill(groupId, name, finalAmount, bank, originalAmount, (isNaN(delayCount) ? 0 : delayCount), (isNaN(fineAmount) ? 0 : fineAmount));
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+}
+
+// ลิงก์หน้าแรกเพื่อเช็คสถานะ
+app.get('/', (req, res) => {
+  res.send('LINE Bot ระบบรวบยอดทบและค่าปรับอัจฉริยะ กำลังทำงานบน Render ✅');
+});
+
+// ลิงก์สำหรับกดส่งแมนนวลทันที
+app.get('/test-billing', async (req, res) => {
+  console.log('⚡ กำลังสั่งรันระบบทวงเงินแบบแมนนวลผ่านหน้าเว็บ...');
+  try {
+    await processBilling(false);
+    res.send('✅ สั่งส่งบิลรวบยอดทบเข้ากลุ่ม LINE เรียบร้อยแล้วครับ!');
+  } catch (err) {
+    console.error('❌ เกิดข้อผิดพลาดตอนกดแมนนวล:', err.message);
+    res.status(500).send(`❌ เกิดข้อผิดพลาดภายในระบบ: ${err.message}`);
+  }
+});
+
+// 🔥 ระบบตั้งเวลาทำงานอัตโนมัติทุกวัน ตอนเวลา 09:00 น. (เวลาไทย)
+cron.schedule('0 2 * * *', async () => {
+  console.log('🕕 [Auto] บอทตื่นมาทำงานรอบอัตโนมัติเวลา 09:00 น. (เวลาไทย)');
+  
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('th-TH', {
+      timeZone: 'Asia/Bangkok',
+      weekday: 'long', 
+      day: 'numeric',   
+    });
+    
+    const parts = formatter.formatToParts(now);
+    const dayOfWeekThai = parts.find(p => p.type === 'weekday').value; 
+    const dayOfMonth = parseInt(parts.find(p => p.type === 'day').value, 10); 
+    
+    console.log(`📅 วันนี้คือ: ${dayOfWeekThai} | วันที่: ${dayOfMonth}`);
+
+    await processBilling(true, dayOfWeekThai, dayOfMonth); 
+    
+    console.log('✅ ส่งบิลรอบประจำวันอัตโนมัติเสร็จสิ้น');
+  } catch (err) {
+    console.error('❌ เกิดข้อผิดพลาดในรอบอัตโนมัติ:', err.message);
+  }
+});
+
+// บังคับจับพอร์ตจาก Render โดยตรง
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Bot รันที่พอร์ตระบบ ${PORT} เรียบร้อยสมบูรณ์`);
+});
