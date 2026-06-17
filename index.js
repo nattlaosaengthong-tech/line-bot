@@ -6,11 +6,10 @@ const cron = require('node-cron');
 const app = express();
 app.use(express.json());
 
-// ===== ตั้งค่าตรงนี้ =====
+// ===== ดึงค่าจาก Environment Variables =====
 const CONFIG = {
-  LINE_TOKEN: 'YOUR_CHANNEL_ACCESS_TOKEN',  // ใส่ Channel Access Token
-  SPREADSHEET_ID: 'YOUR_SPREADSHEET_ID',    // ใส่ ID จาก URL ของ Google Sheets
-  GOOGLE_CREDENTIALS: 'credentials.json',   // ไฟล์ credentials จาก Google
+  LINE_TOKEN: process.env.LINE_TOKEN,
+  SPREADSHEET_ID: process.env.SPREADSHEET_ID,
   BANK: {
     K: {
       name: 'ธนาคารกสิกรไทย',
@@ -26,10 +25,11 @@ const CONFIG = {
 };
 // ==========================
 
-// เชื่อม Google Sheets
+// เชื่อม Google Sheets ผ่าน credentials จาก Environment Variable
 async function getSheetData() {
+  const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
   const auth = new google.auth.GoogleAuth({
-    keyFile: CONFIG.GOOGLE_CREDENTIALS,
+    credentials,
     scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
   });
   const sheets = google.sheets({ version: 'v4', auth });
