@@ -114,7 +114,6 @@ async function processBilling(checkConditions = true) {
 
     // ถ้าไม่ได้สั่งแบบแมนนวล (ให้เช็คเงื่อนไขวันตามปกติ)
     if (checkConditions) {
-      // ปรับแก้ให้รองรับคำว่า "รายวัน" หรือ "วัน" / "รายอาทิตย์" หรือ "อาทิตย์"
       if (round && (round.includes('วัน'))) {
         shouldSend = true;
       } else if (round && (round.includes('อาทิตย์'))) {
@@ -134,15 +133,20 @@ async function processBilling(checkConditions = true) {
   }
 }
 
-// ลิงก์สำหรับกดเพื่อ "สั่งทวงเงินแมนนวลทันที" ผ่านหน้าเว็บ (เอาไว้ใช้ทดสอบและกดสั่งเอง)
+// ลิงก์หน้าแรกเพื่อเช็คสถานะ
+app.get('/', (req, res) => {
+  res.send('LINE Bot กำลังทำงานบน Render ได้อย่างสมบูรณ์แบบ ✅');
+});
+
+// ลิงก์สำหรับกดเพื่อ "สั่งทวงเงินแมนนวลทันที" ผ่านหน้าเว็บ
 app.get('/test-billing', async (req, res) => {
   console.log('⚡ กำลังสั่งรันระบบทวงเงินแบบแมนนวลผ่านหน้าเว็บ...');
   try {
-    // ใส่ค่า false เพื่อบังคับให้มันยิงบิลทันทีโดยไม่ต้องสนใจเงื่อนไขวันเวลา
     await processBilling(false);
     res.send('✅ สั่งส่งบิลเข้ากลุ่ม LINE เรียบร้อยแล้ว! ลองเปิดดูใน LINE ได้เลยครับ');
   } catch (err) {
-    res.status(500).send(`❌ เกิดข้อผิดพลาด: ${err.message}`);
+    console.error('❌ เกิดข้อผิดพลาดตอนกดแมนนวล:', err.message);
+    res.status(500).send(`❌ เกิดข้อผิดพลาดภายในระบบ: ${err.message}`);
   }
 });
 
@@ -157,7 +161,8 @@ cron.schedule('0 11 * * *', async () => {
   }
 });
 
-app.get('/', (req, res) => res.send('LINE Bot กำลังทำงาน ✅'));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Bot รันที่ port ${PORT}`));
+// บังคับจับพอร์ตจาก Render โดยตรงเพื่อป้องกันอาการลิงก์ค้าง
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Bot รันที่พอร์ตระบบ ${PORT} เรียบร้อยสมบูรณ์`);
+});
