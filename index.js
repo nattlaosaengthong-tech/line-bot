@@ -153,7 +153,7 @@ async function processBilling(checkConditions = true, dayOfWeekThai = '', dayOfM
       // คำนวณรวบยอดออโต้
       const finalAmount = originalAmount + (originalAmount * (isNaN(delayCount) ? 0 : delayCount)) + (isNaN(fineAmount) ? 0 : fineAmount);
 
-      await sendBill(groupId, name, finalAmount, bank, originalAmount, (isNaN(delayCount) ? 0 : delayCount), (isNaN(fineAmount) ? 0 : fineAmount));
+      await sendFlexBilling(groupId, row);
       await new Promise(r => setTimeout(r, 1000));
     }
   }
@@ -207,3 +207,67 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Bot รันที่พอร์ตระบบ ${PORT} เรียบร้อยสมบูรณ์`);
 });
+
+// --- [ส่วนที่เพิ่มใหม่] ฟังก์ชันส่งบิล Flex Message ---
+async function sendFlexBilling(replyToken, row) {
+  // ตั้งค่าข้อมูลตามคอลัมน์ใน Sheet 1 (A=0, B=1, E=4, H=7)
+  const name = row[0];
+  const amount = Number(row[1]) || 0;
+  const fine = Number(row[7]) || 0;
+  const total = amount + fine;
+  
+  // แปลงค่าบัญชีจากคอลัมน์ E (row[4])
+  const bankMap = {
+    'K': { name: 'ธนาคารกสิกรไทย', acc: '039-1-69658-6', owner: 'นัฎฐ์ เหล่าแสงทอง' },
+    'S': { name: 'ธนาคารไทยพาณิชย์', acc: '408-9-87818-1', owner: 'สิริประภา สุดโสภา' }
+  };
+  const bank = bankMap[row[4]] || { name: 'โปรดตรวจสอบบัญชี', acc: '-', owner: '-' };
+
+  const message = {
+    type: "flex",
+    altText: "แจ้งยอดชำระเงิน",
+    contents: {
+      type: "bubble",
+      size: "giga",
+      body: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          { type: "text", text: "แจ้งยอดชำระ", weight: "bold", color: "#1DB446", size: "sm" },
+          { type: "text", text: "คุณ " + name, weight: "bold", size: "xxl", margin: "md" },
+          { type: "separator", margin: "xxl" },
+          {
+            type: "box", layout: "vertical", margin: "xxl", spacing: "sm",
+            contents: [
+              { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ยอดงวด:", size: "sm", color: "#555555" }, { type: "text", text: amount.toLocaleString() + " บาท", size: "sm", align: "end" }] },
+              { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ค่าปรับ:", size: "sm", color: "#555555" }, { type: "text", text: fine.toLocaleString() + " บาท", size: "sm", align: "end" }] },
+              { type: "box", layout: "horizontal", margin: "xxl", contents: [{ type: "text", text: "รวมสุทธิ:", size: "sm", weight: "bold", color: "#555555" }, { type: "text", text: total.toLocaleString() + " บาท", size: "md", weight: "bold", color: "#FF0000", align: "end" }] },
+              { type: "separator", margin: "xxl" },
+              { type: "box", layout: "horizontal", contents: [{ type: "text", text: "โอนที่:", size: "sm", color: "#555555" }, { type: "text", text: bank.name, size: "sm", align: "end" }] },
+              { type: "box", layout: "horizontal", contents: [{ type: "text", text: "เลขบัญชี:", size: "sm", color: "#555555" }, { type: "text", text: bank.acc, size: "sm", align: "end" }] }
+            ]
+          },
+          { type: "separator", margin: "xxl" },
+          { type: "box", layout: "vertical", margin: "md", contents: [{ type: "text", text: "โอนเสร็จแล้ว ส่งสลิปในกลุ่มนี้เลยครับ", size: "xs", color: "#aaaaaa", wrap: true }] }
+        ]
+      }
+    }
+  };
+  await axios.post('https://api.line.me/v2/bot/message/push', {
+
+    to: replyToken, // คือ groupId ของกลุ่มนั้น
+
+    messages: [message]
+
+  }, {
+
+    headers: {
+
+      'Authorization': `Bearer ${CONFIG.LINE_TOKEN}`,
+
+      'Content-Type': 'application/json'
+
+    }
+
+  });
+}
