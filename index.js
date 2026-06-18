@@ -221,10 +221,10 @@ async function sendFlexBilling(groupId, row) {
 
   // กำหนดข้อมูลธนาคารตามรหัส K หรือ S (คอลัมน์ E: row[4])
   const bankData = row[4] === 'S' 
-    ? { name: 'ธนาคารไทยพาณิชย์', number: '4089878181', account: 'สิริประภา' }
-    : { name: 'ธนาคารกสิกรไทย', number: '0391696586', account: 'นัฎฐ์' };
+    ? { name: 'ธนาคารไทยพาณิชย์', number: '4089878181', account: 'สิริประภา สุดโสภา' }
+    : { name: 'ธนาคารกสิกรไทย', number: '0391696586', account: 'นัฎฐ์ เหล่าแสงทอง' };
 
-  const message = {
+ const message = {
     type: "flex",
     altText: "แจ้งยอดชำระสุทธิ",
     contents: {
@@ -234,7 +234,7 @@ async function sendFlexBilling(groupId, row) {
         type: "box",
         layout: "vertical",
         contents: [
-          { type: "text", text: "แจ้งยอดชำระสุทธิ", weight: "bold", color: "#1DB446", size: "lg" },
+          { type: "text", text: "แจ้งยอดชำระสุทธิ", weight: "bold", size: "lg", color: "#333333" },
           { type: "text", text: "คุณ " + name, weight: "bold", size: "xl", margin: "md" },
           { type: "separator", margin: "xxl" },
           {
@@ -244,19 +244,21 @@ async function sendFlexBilling(groupId, row) {
               { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ค้างชำระสะสม:", size: "sm", color: "#555555" }, { type: "text", text: delayCount + " งวด", size: "sm", align: "end" }] },
               { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ค่าปรับล่าช้า:", size: "sm", color: "#555555" }, { type: "text", text: fineAmount.toLocaleString() + " บาท", size: "sm", align: "end" }] },
               { type: "separator", margin: "xxl" },
-              { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ยอดรวมที่ต้องโอน:", size: "md", weight: "bold" }, { type: "text", text: totalAmount.toLocaleString() + " บาท", size: "md", weight: "bold", color: "#FF0000", align: "end" }] }
+              { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ยอดรวมที่ต้องโอน:", size: "md", weight: "bold", color: "#333333" }, { type: "text", text: totalAmount.toLocaleString() + " บาท", size: "md", weight: "bold", color: "#333333", align: "end" }] }
             ]
           },
-          { type: "separator", margin: "xxl", margin: "xxl" },
+          { type: "separator", margin: "xxl" },
           {
             type: "box", layout: "vertical", margin: "xxl", spacing: "sm",
             contents: [
-              { type: "text", text: "ช่องทางการชำระเงิน", weight: "bold", size: "sm" },
+              { type: "text", text: "ช่องทางการชำระเงิน", weight: "bold", size: "sm", color: "#333333" },
               { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ธนาคาร:", size: "xs", color: "#555555" }, { type: "text", text: bankData.name, size: "xs", align: "end" }] },
               { type: "box", layout: "horizontal", contents: [{ type: "text", text: "เลขบัญชี:", size: "xs", color: "#555555" }, { type: "text", text: bankData.number, size: "xs", align: "end" }] },
               { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ชื่อบัญชี:", size: "xs", color: "#555555" }, { type: "text", text: bankData.account, size: "xs", align: "end" }] }
             ]
-          }
+          },
+          { type: "separator", margin: "xxl" },
+          { type: "text", text: "หากโอนชำระแล้ว โปรดส่งสลิปในกลุ่มนี้เพื่อตรวจสอบ ขอบคุณครับ", size: "xs", color: "#999999", margin: "md", wrap: true }
         ]
       }
     }
