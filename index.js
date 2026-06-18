@@ -234,7 +234,7 @@ async function sendFlexBilling(groupId, row) {
         type: "box",
         layout: "vertical",
         contents: [
-          { type: "text", text: "แจ้งยอดชำระสุทธิ", weight: "bold", size: "lg", color: "#333333" },
+          { type: "text", text: "แจ้งยอดชำระสุทธิ", weight: "bold", size: "lg", color: "#1DB446" },
           { type: "text", text: "คุณ " + name, weight: "bold", size: "xl", margin: "md" },
           { type: "separator", margin: "xxl" },
           {
